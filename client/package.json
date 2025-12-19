@@ -3,22 +3,46 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "vite & electron .",
+    "electron:build": "vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.custom.chess",
+    "productName": "Custom Chess",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.cjs"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "chess.js": "^1.0.0-beta.7",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "react-chessboard": "^4.3.0",
+    "react-dom": "^18.2.0",
     "socket.io-client": "^4.7.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
     "vite": "^5.0.8"
   }
 }
