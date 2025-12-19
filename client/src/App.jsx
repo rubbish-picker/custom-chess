@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Chessboard } from "react-chessboard";
 import io from "socket.io-client";
-import { GameRules } from "./GameRules";
+import { createRuleset, RULESETS, RULESET_IDS } from "./GameRules";
 import "./App.css";
 
 function App() {
   // 游戏逻辑实例
   // 我们使用 ref 来保持 gameRules 实例，但它的内部状态变化不会触发重渲染
   // 所以我们需要一个 state (fen) 来驱动 UI 更新
-  const gameRulesRef = useRef(new GameRules());
+  const gameRulesRef = useRef(createRuleset(RULESET_IDS.STANDARD));
   const [fen, setFen] = useState(gameRulesRef.current.getFen());
+
+  // 规则选择（仅前端；服务端无需修改，会透传 make_move payload）
+  const [rulesetId, setRulesetId] = useState(RULESET_IDS.STANDARD);
+  const rulesetIdRef = useRef(RULESET_IDS.STANDARD);
   
   // 连接状态
   const [socket, setSocket] = useState(null);
@@ -80,6 +84,33 @@ function App() {
     outgoingOfferRef.current = outgoingOffer;
   }, [outgoingOffer]);
 
+  useEffect(() => {
+    rulesetIdRef.current = rulesetId;
+  }, [rulesetId]);
+
+  const switchRuleset = (nextRulesetId, options = {}) => {
+    const id = nextRulesetId || RULESET_IDS.STANDARD;
+    const next = createRuleset(id);
+    gameRulesRef.current = next;
+
+    // 可选：同步到某个局面（比如接收对手 move 时）
+    if (options?.fen) {
+      next.syncTo(options.fen, options.rulesState || null);
+      setFen(next.getFen());
+    } else {
+      setFen(next.getFen());
+    }
+
+    setSelectedSquare(null);
+    setValidMoves([]);
+    setLocalGameOver(null);
+    setIncomingOffer(null);
+    setOutgoingOffer(null);
+
+    setRulesetId(id);
+    rulesetIdRef.current = id;
+  };
+
   // 连接服务器
   const connectToServer = () => {
     if (socket) return;
@@ -122,30 +153,18 @@ function App() {
 
     newSocket.on("receive_move", (data) => {
       // 收到对手的移动
-      const { move, fen: newFen } = data;
-      // 关键修复：不要用 load(fen) 同步走子（会清空 chess.js 的历史，导致悔棋无历史）。
-      // 优先用 move 重放，从而保留双方一致的 history。
-      let applied = null;
-      if (move?.from && move?.to) {
-        applied = gameRulesRef.current.makeMove({
-          from: move.from,
-          to: move.to,
-          ...(move.promotion ? { promotion: move.promotion } : {}),
-        });
-      }
+      const { fen: newFen, rulesetId: remoteRulesetId, rulesState: remoteRulesState } = data || {};
 
-      // 兜底：如果因为不同步导致重放失败，则回退到 load(fen) 进行硬同步
-      if (!applied && newFen) {
-        gameRulesRef.current.load(newFen);
+      // 自动切换到对手使用的规则（无需改服务端）
+      if (remoteRulesetId && remoteRulesetId !== rulesetIdRef.current) {
+        showToast("已自动切换到房主/对手的规则", "info", 2600);
+        switchRuleset(remoteRulesetId, { fen: newFen, rulesState: remoteRulesState });
       } else if (newFen) {
-        const computedFen = gameRulesRef.current.getFen();
-        if (computedFen !== newFen) {
-          gameRulesRef.current.load(newFen);
-        }
+        // 远端同步：直接应用对手发来的局面 + 规则状态，并加入本地悔棋快照
+        gameRulesRef.current.applyRemoteState(newFen, remoteRulesState || null);
+        setFen(gameRulesRef.current.getFen());
       }
 
-      // 更新 UI
-      setFen(gameRulesRef.current.getFen());
       setSelectedSquare(null);
       setValidMoves([]);
       
@@ -214,18 +233,13 @@ function App() {
     });
 
     newSocket.on("undo_committed", (data) => {
-      const plies = Math.max(1, Math.min(2, Number(data?.plies) || 1));
-      let count = 0;
-      for (let i = 0; i < plies; i++) {
-        const undone = gameRulesRef.current.undo();
-        if (!undone) break;
-        count++;
-      }
-      if (count > 0) {
+      const plies = Math.max(1, Math.min(4, Number(data?.plies) || 1));
+      const undone = gameRulesRef.current.undoPlies ? gameRulesRef.current.undoPlies(plies) : null;
+      if (undone) {
         setFen(gameRulesRef.current.getFen());
         setSelectedSquare(null);
         setValidMoves([]);
-        showToast(count === 2 ? "已悔棋（撤回两步）" : "已悔棋", "success");
+        showToast(plies > 1 ? `已悔棋（撤回${plies}步）` : "已悔棋", "success");
       } else {
         showToast("无法悔棋（无历史）", "warning");
       }
@@ -303,6 +317,8 @@ function App() {
       const cleanRoomId = roomId.trim();
       socket.emit("join_room", cleanRoomId, (res) => {
         if (res?.ok) {
+          // 进入对局前，按当前选择的规则重置本地规则引擎
+          switchRuleset(rulesetIdRef.current);
           setRoomId(cleanRoomId);
           setIsInGame(true);
         } else {
@@ -369,6 +385,8 @@ function App() {
         roomId,
         move,
         fen: gameRulesRef.current.getFen(),
+        rulesetId: rulesetIdRef.current,
+        rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
       });
     }
     
@@ -445,10 +463,13 @@ function App() {
       return;
     }
 
-    // 规则：若对方已经落子（现在轮到自己），则悔棋撤回两步；否则撤回一步。
-    const plies = (playerColor && gameRulesRef.current.turn() === playerColor) ? 2 : 1;
+    // 按当前规则与玩家颜色计算本次悔棋需要撤回的半步数（两步规则可能为 1-4）
+    const pliesRaw = gameRulesRef.current.getSuggestedUndoPlies
+      ? gameRulesRef.current.getSuggestedUndoPlies(playerColor)
+      : ((playerColor && gameRulesRef.current.turn() === playerColor) ? 2 : 1);
+    const plies = Math.max(1, Math.min(4, Number(pliesRaw) || 1));
     if (!gameRulesRef.current.canUndoPlies(plies)) {
-      showToast(plies === 2 ? "无法撤回" : "当前无可悔棋的步数", "info");
+      showToast("当前无可悔棋的步数", "info");
       return;
     }
     if (incomingOffer || outgoingOffer) {
@@ -459,7 +480,7 @@ function App() {
     socket.emit('offer_action', { roomId, type: 'undo', fromColor: playerColor, plies, baseFen }, (res) => {
       if (res?.ok) {
         setOutgoingOffer({ offerId: res.offerId, type: 'undo' });
-        showToast(plies === 2 ? "已发送悔棋请求（撤回两步）" : "已发送悔棋请求", "info");
+        showToast(plies > 1 ? `已发送悔棋请求（撤回${plies}步）` : "已发送悔棋请求", "info");
       } else if (res?.error === 'OPPONENT_NOT_PRESENT') {
         showToast("对手不在房间内，无法请求", "warning");
       } else if (res?.error === 'OFFER_PENDING') {
@@ -559,6 +580,8 @@ function App() {
               roomId,
               move,
               fen: gameRulesRef.current.getFen(),
+              rulesetId: rulesetIdRef.current,
+              rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
             });
           }
           return;
@@ -696,6 +719,28 @@ function App() {
 
           {isConnected && (
             <div>
+              <div style={{marginBottom: '10px'}}>
+                <label style={{marginRight: '10px'}}>Rules (规则):</label>
+                <select
+                  value={rulesetId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setRulesetId(nextId);
+                    switchRuleset(nextId);
+                  }}
+                  style={{ padding: '10px', fontSize: '16px' }}
+                >
+                  {RULESETS.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: 'rgba(0,0,0,0.65)' }}>
+                  {RULESETS.find((r) => r.id === rulesetId)?.description}
+                </div>
+              </div>
+
               <label>Room ID: </label>
               <input 
                 value={roomId} 
@@ -713,6 +758,9 @@ function App() {
               <div>
                 <div style={{marginBottom: '5px'}}>Room: <strong>{roomId}</strong></div>
                 <div>Players: <strong>{playerCount}</strong> {playerCount < 2 && <span style={{color: 'orange'}}>(Waiting for opponent...)</span>}</div>
+                <div style={{marginTop: '5px'}}>
+                  Rules: <strong>{RULESETS.find((r) => r.id === rulesetId)?.name || rulesetId}</strong>
+                </div>
                 {playerColor && (
                   <div style={{marginTop: '5px'}}>You are: <strong>{playerColor === 'w' ? 'White (白方)' : 'Black (黑方)'}</strong></div>
                 )}

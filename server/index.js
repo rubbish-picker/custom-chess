@@ -126,7 +126,7 @@ io.on('connection', (socket) => {
       type,
       from: socket.id,
       fromColor,
-      plies: type === 'undo' ? Math.max(1, Math.min(2, plies)) : undefined,
+      plies: type === 'undo' ? Math.max(1, Math.min(4, plies)) : undefined,
       baseFen: type === 'undo' ? baseFen : undefined,
     };
 
