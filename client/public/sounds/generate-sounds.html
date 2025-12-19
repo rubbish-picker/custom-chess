@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音效生成器</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .sound-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .play-btn {
+            background: #2196F3;
+        }
+        .play-btn:hover {
+            background: #0b7dda;
+        }
+        .note {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 象棋音效生成器</h1>
+        <p style="text-align: center; color: #666;">使用 Web Audio API 生成简单的音效</p>
+        
+        <div class="sound-section">
+            <h2>🎯 落子音效 (Move Sound)</h2>
+            <button class="play-btn" onclick="playMoveSound()">试听</button>
+            <button onclick="downloadMoveSound()">下载 move.mp3</button>
+            <p class="note">清脆的点击声，适合棋子落下</p>
+        </div>
+        
+        <div class="sound-section">
+            <h2>⚠️ 将军音效 (Check Sound)</h2>
+            <button class="play-btn" onclick="playCheckSound()">试听</button>
+            <button onclick="downloadCheckSound()">下载 check.mp3</button>
+            <p class="note">警示音，适合将军提示</p>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background: #e3f2fd; border-radius: 5px;">
+            <h3>📝 使用说明：</h3>
+            <ol>
+                <li>点击"试听"按钮可以预览音效</li>
+                <li>点击"下载"按钮下载音效文件</li>
+                <li>将下载的文件放到 <code>client/public/sounds/</code> 目录</li>
+                <li>重启开发服务器即可使用</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        // 创建音频上下文
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // 生成落子音效
+        function createMoveSound() {
+            const duration = 0.1;
+            const sampleRate = audioContext.sampleRate;
+            const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            for (let i = 0; i < buffer.length; i++) {
+                const t = i / sampleRate;
+                // 短促的点击声
+                data[i] = Math.sin(2 * Math.PI * 1000 * t) * Math.exp(-t * 50);
+            }
+            
+            return buffer;
+        }
+        
+        // 生成将军音效
+        function createCheckSound() {
+            const duration = 0.3;
+            const sampleRate = audioContext.sampleRate;
+            const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
+            const data = buffer.getChannelData(0);
+            
+            for (let i = 0; i < buffer.length; i++) {
+                const t = i / sampleRate;
+                // 警示音 - 上升音调
+                const freq = 800 + t * 400;
+                data[i] = Math.sin(2 * Math.PI * freq * t) * Math.exp(-t * 8) * 0.5;
+            }
+            
+            return buffer;
+        }
+        
+        // 播放音效
+        function playBuffer(buffer) {
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start();
+        }
+        
+        function playMoveSound() {
+            playBuffer(createMoveSound());
+        }
+        
+        function playCheckSound() {
+            playBuffer(createCheckSound());
+        }
+        
+        // 下载音效
+        function downloadBuffer(buffer, filename) {
+            // 使用 OfflineAudioContext 渲染音频
+            const offlineContext = new OfflineAudioContext(1, buffer.length, buffer.sampleRate);
+            const source = offlineContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(offlineContext.destination);
+            source.start();
+            
+            offlineContext.startRendering().then(renderedBuffer => {
+                // 转换为 WAV 格式（简化版）
+                const wav = audioBufferToWav(renderedBuffer);
+                const blob = new Blob([wav], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename.replace('.mp3', '.wav'); // 实际是WAV格式
+                a.click();
+                
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        function downloadMoveSound() {
+            downloadBuffer(createMoveSound(), 'move.mp3');
+        }
+        
+        function downloadCheckSound() {
+            downloadBuffer(createCheckSound(), 'check.mp3');
+        }
+        
+        // 将 AudioBuffer 转换为 WAV 格式
+        function audioBufferToWav(buffer) {
+            const length = buffer.length * buffer.numberOfChannels * 2 + 44;
+            const arrayBuffer = new ArrayBuffer(length);
+            const view = new DataView(arrayBuffer);
+            const channels = [];
+            let offset = 0;
+            let pos = 0;
+            
+            // WAV 文件头
+            setUint32(0x46464952); // "RIFF"
+            setUint32(length - 8); // file length - 8
+            setUint32(0x45564157); // "WAVE"
+            
+            setUint32(0x20746d66); // "fmt " chunk
+            setUint32(16); // length = 16
+            setUint16(1); // PCM (uncompressed)
+            setUint16(buffer.numberOfChannels);
+            setUint32(buffer.sampleRate);
+            setUint32(buffer.sampleRate * 2 * buffer.numberOfChannels); // avg. bytes/sec
+            setUint16(buffer.numberOfChannels * 2); // block-align
+            setUint16(16); // 16-bit
+            
+            setUint32(0x61746164); // "data" - chunk
+            setUint32(length - pos - 4); // chunk length
+            
+            // 写入样本数据
+            for (let i = 0; i < buffer.numberOfChannels; i++) {
+                channels.push(buffer.getChannelData(i));
+            }
+            
+            while (pos < length) {
+                for (let i = 0; i < buffer.numberOfChannels; i++) {
+                    let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    view.setInt16(pos, sample, true);
+                    pos += 2;
+                }
+                offset++;
+            }
+            
+            return arrayBuffer;
+            
+            function setUint16(data) {
+                view.setUint16(pos, data, true);
+                pos += 2;
+            }
+            
+            function setUint32(data) {
+                view.setUint32(pos, data, true);
+                pos += 4;
+            }
+        }
+    </script>
+</body>
+</html>

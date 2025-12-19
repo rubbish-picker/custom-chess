@@ -1,0 +1,287 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.card {
+  padding: 2em;
+}
+
+.game-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.board-wrapper {
+  width: 70vmin;
+  height: 70vmin;
+  max-width: 600px;
+  max-height: 600px;
+}
+
+.gameLayout {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.boardColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.boardArea {
+  width: 70vmin;
+  height: 70vmin;
+  max-width: 600px;
+  max-height: 600px;
+}
+
+.sidePanel {
+  width: min(260px, 38vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.actionsPanel {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(20, 20, 20, 0.06);
+  border: 1px solid rgba(0,0,0,0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hintText {
+  font-size: 12px;
+  color: rgba(0,0,0,0.65);
+  text-align: left;
+  line-height: 1.35;
+}
+
+@media (max-width: 920px) {
+  .gameLayout {
+    flex-direction: column;
+    align-items: center;
+  }
+  .sidePanel {
+    width: 100%;
+    max-width: 600px;
+    margin-top: 0;
+  }
+  .actionsPanel {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .actionsPanel .btn {
+    width: auto;
+  }
+}
+
+input {
+  padding: 10px;
+  margin-right: 10px;
+  font-size: 16px;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+button:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 280px;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 12px 12px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 9999;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.toast__message {
+  text-align: left;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.toast__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  padding: 0;
+  line-height: 1;
+}
+
+.toast--success { background: rgba(20, 60, 35, 0.92); }
+.toast--warning { background: rgba(80, 55, 10, 0.92); }
+.toast--error { background: rgba(80, 20, 20, 0.92); }
+.toast--info { background: rgba(20, 20, 20, 0.92); }
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 16px;
+}
+
+.modal {
+  width: 420px;
+  max-width: 100%;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.25);
+  padding: 16px;
+  text-align: left;
+}
+
+.modal__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.modal__message {
+  font-size: 14px;
+  color: #333;
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 10px 14px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+
+.btn--ghost {
+  background: #efefef;
+  color: #111;
+}
+
+.btn--danger {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.btn--primary {
+  background: #1976d2;
+  color: #fff;
+}
+
+.confirm {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: min(720px, calc(100vw - 32px));
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.18);
+  padding: 14px;
+  text-align: left;
+  z-index: 10001;
+}
+
+.confirm__title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.confirm__message {
+  font-size: 14px;
+  color: #333;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.offerBar {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(20, 20, 20, 0.06);
+  border: 1px solid rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.offerBar__text {
+  font-size: 14px;
+  color: #111;
+  font-weight: 600;
+}
+
+.offerBar__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.gameHeader {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
