@@ -347,17 +347,23 @@ function App() {
   // 播放音效
   const playMoveSound = () => {
     try {
+      const assetUrl = (relativePath) => {
+        // Dev: http://localhost... => 解析为 http://.../sounds/...
+        // Packaged(Electron): file:///.../index.html => 解析为 file:///.../sounds/...
+        return new URL(relativePath, window.location.href).toString();
+      };
+
       const isCheck = gameRulesRef.current.isInCheck();
 
       // 需求：将军时不要播放移动音效，只播放将军音效
       if (isCheck) {
-        if (!checkSound.current) checkSound.current = new Audio('/sounds/check.mp3');
+        if (!checkSound.current) checkSound.current = new Audio(assetUrl('sounds/check.mp3'));
         checkSound.current.currentTime = 0;
         checkSound.current.play().catch(err => console.log('无法播放将军音效:', err));
         return;
       }
 
-      if (!moveSound.current) moveSound.current = new Audio('/sounds/move.mp3');
+      if (!moveSound.current) moveSound.current = new Audio(assetUrl('sounds/move.mp3'));
       moveSound.current.currentTime = 0;
       moveSound.current.play().catch(err => console.log('无法播放移动音效:', err));
     } catch (err) {
