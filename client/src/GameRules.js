@@ -333,11 +333,16 @@ export class TwoStepChessRules extends BaseChessRules {
       const gaveCheckOnThisPly = this.game.inCheck();
       const ended = this.game.isGameOver();
 
-      // 规则：任一步产生逼和/和棋/将死等都立即结束
+      // 规则修正：两步模式下，第一步走完通常仍是“本方回合”，对手并未真正获得走子权。
+      // 因此：第一步若未将军（回合不会立即结束），不应在此时判定和棋/逼和等局面结束。
+      // 例：第一步造成“对手若立刻行动将无棋可走”的局面，在两步规则下应允许本方继续第二步。
       if (ended) {
-        this.turnStep = 0;
-        this._pushSnapshot();
-        return result;
+        const shouldFinalizeNow = !isFirstStep || gaveCheckOnThisPly;
+        if (shouldFinalizeNow) {
+          this.turnStep = 0;
+          this._pushSnapshot();
+          return result;
+        }
       }
 
       // 规则：第一步将军则回合立即结束

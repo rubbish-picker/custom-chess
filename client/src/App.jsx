@@ -31,6 +31,9 @@ function App() {
   const [validMoves, setValidMoves] = useState([]);
   const [localGameOver, setLocalGameOver] = useState(null); // { reason: string, winner: 'w'|'b'|null, type: 'resign'|'draw'|'checkmate'|'other' }
 
+  // 升变选择：在落子前弹窗选择 (q/r/b/n)
+  const [pendingPromotion, setPendingPromotion] = useState(null); // { from: string, to: string }
+
   // 悔棋/求和 请求状态
   const [incomingOffer, setIncomingOffer] = useState(null); // { offerId, type: 'undo'|'draw', fromColor }
   const [outgoingOffer, setOutgoingOffer] = useState(null); // { offerId, type: 'undo'|'draw' }
@@ -70,6 +73,54 @@ function App() {
     setConfirmDialog(null);
   };
 
+  const isPromotionAttempt = (from, to) => {
+    const piece = gameRulesRef.current.getPiece(from);
+    if (!piece || piece.type !== 'p') return false;
+    const toRank = Number(String(to).slice(1));
+    if (piece.color === 'w') return toRank === 8;
+    return toRank === 1;
+  };
+
+  const normalizeCastlingTarget = (from, to) => {
+    const piece = gameRulesRef.current.getPiece(from);
+    if (!piece || piece.type !== 'k') return { from, to };
+
+    // 兼容：react-chessboard 用户可能把王“放到车上”来易位
+    const targetPiece = gameRulesRef.current.getPiece(to);
+    if (!targetPiece || targetPiece.type !== 'r' || targetPiece.color !== piece.color) {
+      return { from, to };
+    }
+
+    const fromFile = String(from)[0];
+    const toFile = String(to)[0];
+    const fromRank = String(from).slice(1);
+    const toRank = String(to).slice(1);
+    if (fromFile !== 'e' || fromRank !== toRank) return { from, to };
+
+    // e1->h1 => g1；e1->a1 => c1；e8->h8 => g8；e8->a8 => c8
+    if (toFile === 'h') return { from, to: `g${fromRank}` };
+    if (toFile === 'a') return { from, to: `c${fromRank}` };
+    return { from, to };
+  };
+
+  const attemptMove = (from, to, promotion = null) => {
+    const normalized = normalizeCastlingTarget(from, to);
+
+    // 升变：先弹窗选择
+    if (!promotion && isPromotionAttempt(normalized.from, normalized.to)) {
+      setPendingPromotion({ from: normalized.from, to: normalized.to });
+      return { ok: false, deferred: true };
+    }
+
+    const move = gameRulesRef.current.makeMove({
+      from: normalized.from,
+      to: normalized.to,
+      ...(promotion ? { promotion } : {}),
+    });
+    if (move === null) return { ok: false, deferred: false };
+    return { ok: true, move };
+  };
+
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -104,6 +155,7 @@ function App() {
     setSelectedSquare(null);
     setValidMoves([]);
     setLocalGameOver(null);
+    setPendingPromotion(null);
     setIncomingOffer(null);
     setOutgoingOffer(null);
 
@@ -167,6 +219,7 @@ function App() {
 
       setSelectedSquare(null);
       setValidMoves([]);
+      setPendingPromotion(null);
       
       // 播放音效
       playMoveSound();
@@ -239,6 +292,7 @@ function App() {
         setFen(gameRulesRef.current.getFen());
         setSelectedSquare(null);
         setValidMoves([]);
+        setPendingPromotion(null);
         showToast(plies > 1 ? `已悔棋（撤回${plies}步）` : "已悔棋", "success");
       } else {
         showToast("无法悔棋（无历史）", "warning");
@@ -251,6 +305,7 @@ function App() {
       setLocalGameOver({ reason: "Draw by agreement (双方同意求和)", winner: null, type: 'draw' });
       setSelectedSquare(null);
       setValidMoves([]);
+      setPendingPromotion(null);
       showToast("双方同意求和", "success", 3200);
       setIncomingOffer(null);
       setOutgoingOffer(null);
@@ -261,6 +316,7 @@ function App() {
         setFen(gameRulesRef.current.getFen());
         setSelectedSquare(null);
         setValidMoves([]);
+      setPendingPromotion(null);
       setLocalGameOver(null);
         showToast("游戏已重置", "success");
     });
@@ -272,6 +328,7 @@ function App() {
       setLocalGameOver({ reason: "Resign (认输)", winner: winnerColor, type: 'resign' });
       setSelectedSquare(null);
       setValidMoves([]);
+      setPendingPromotion(null);
         showToast(`${loserName} 认输，${winnerName} 获胜！`, "warning", 3200);
     });
 
@@ -280,6 +337,7 @@ function App() {
       setLocalGameOver({ reason: "Opponent left (对手已离开)", winner: null, type: 'other' });
       setSelectedSquare(null);
       setValidMoves([]);
+      setPendingPromotion(null);
       setIncomingOffer(null);
       setOutgoingOffer(null);
       showToast("对手已离开房间。请返回大厅或等待对手加入。", "warning", 3600);
@@ -337,6 +395,7 @@ function App() {
   // 处理棋子移动
   function onDrop(sourceSquare, targetSquare) {
     if (localGameOver || gameRulesRef.current.isGameOver()) return false;
+    if (pendingPromotion) return false;
     if (playerCount < 2) {
       showToast("等待对手加入后才能开始", "info");
       return false;
@@ -359,15 +418,11 @@ function App() {
       showToast("已走子，已拒绝对方悔棋请求", "info", 2200);
     }
     
-    // 尝试在本地执行移动
-    const move = gameRulesRef.current.makeMove({
-      from: sourceSquare,
-      to: targetSquare,
-      promotion: "q", // 总是升变为后，可以改进为弹窗选择
-    });
+    // 尝试在本地执行移动（含：易位兼容 + 升变选择）
+    const res = attemptMove(sourceSquare, targetSquare);
 
     // 如果移动非法，返回 false，棋盘会自动回弹
-    if (move === null) return false;
+    if (!res.ok) return false;
 
     // 更新 UI
     setFen(gameRulesRef.current.getFen());
@@ -383,7 +438,7 @@ function App() {
     if (socket && isInGame) {
       socket.emit("make_move", {
         roomId,
-        move,
+        move: res.move,
         fen: gameRulesRef.current.getFen(),
         rulesetId: rulesetIdRef.current,
         rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
@@ -407,6 +462,7 @@ function App() {
       setSelectedSquare(null);
       setValidMoves([]);
       setLocalGameOver(null);
+        setPendingPromotion(null);
       if (socket && isInGame) {
           socket.emit("reset_game", roomId);
       }
@@ -422,6 +478,7 @@ function App() {
     setSelectedSquare(null);
     setValidMoves([]);
     setLocalGameOver(null);
+    setPendingPromotion(null);
     setRoomId("");
     setPlayerCount(0);
     setPlayerColor(null);
@@ -446,6 +503,7 @@ function App() {
     setLocalGameOver({ reason: "Resign (认输)", winner: winnerColor, type: 'resign' });
     setSelectedSquare(null);
     setValidMoves([]);
+    setPendingPromotion(null);
 
     if (socket && isInGame) {
       socket.emit("resign_game", { roomId, color: playerColor });
@@ -546,6 +604,7 @@ function App() {
   // 处理点击棋子
   const onSquareClick = (square) => {
     if (localGameOver || gameRulesRef.current.isGameOver()) return;
+    if (pendingPromotion) return;
     const currentTurn = gameRulesRef.current.turn();
     const canPlayNow = playerColor && currentTurn === playerColor && playerCount >= 2;
     
@@ -558,14 +617,10 @@ function App() {
           setIncomingOffer(null);
           showToast("已走子，已拒绝对方悔棋请求", "info", 2200);
         }
-        // 执行移动
-        const move = gameRulesRef.current.makeMove({
-          from: selectedSquare,
-          to: square,
-          promotion: "q",
-        });
+        // 执行移动（含：易位兼容 + 升变选择）
+        const res = attemptMove(selectedSquare, square);
         
-        if (move !== null) {
+        if (res.ok) {
           // 更新 UI
           setFen(gameRulesRef.current.getFen());
           setSelectedSquare(null);
@@ -578,7 +633,7 @@ function App() {
           if (socket && isInGame) {
             socket.emit("make_move", {
               roomId,
-              move,
+              move: res.move,
               fen: gameRulesRef.current.getFen(),
               rulesetId: rulesetIdRef.current,
               rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
@@ -590,6 +645,32 @@ function App() {
       
       // 如果点击的不是有效位置，检查是否点击了另一个己方棋子
       const piece = gameRulesRef.current.getPiece(square);
+      // 兼容：点击王后，再点自家车进行易位（若 g/c 目标本来就是合法步）
+      if (canPlayNow && selectedSquare) {
+        const selectedPiece = gameRulesRef.current.getPiece(selectedSquare);
+        if (selectedPiece?.type === 'k' && piece?.type === 'r' && piece.color === selectedPiece.color) {
+          const normalized = normalizeCastlingTarget(selectedSquare, square);
+          if (normalized.to !== square && validMoves.includes(normalized.to)) {
+            const res = attemptMove(selectedSquare, normalized.to);
+            if (res.ok) {
+              setFen(gameRulesRef.current.getFen());
+              setSelectedSquare(null);
+              setValidMoves([]);
+              playMoveSound();
+              if (socket && isInGame) {
+                socket.emit("make_move", {
+                  roomId,
+                  move: res.move,
+                  fen: gameRulesRef.current.getFen(),
+                  rulesetId: rulesetIdRef.current,
+                  rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
+                });
+              }
+              return;
+            }
+          }
+        }
+      }
       if (piece && playerColor && piece.color === playerColor) {
         // 切换选中的棋子
         setSelectedSquare(square);
@@ -697,6 +778,64 @@ function App() {
             <button className="btn btn--danger" onClick={() => closeConfirm(true)}>
               确定
             </button>
+          </div>
+        </div>
+      )}
+
+      {pendingPromotion && (
+        <div className="confirm" role="dialog" aria-modal="false" aria-label="选择升变棋子">
+          <div className="confirm__title">选择升变棋子</div>
+          <div className="confirm__message">
+            请选择升变为：
+          </div>
+          <div className="confirm__actions">
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                setPendingPromotion(null);
+                showToast("已取消升变移动", "info", 2200);
+              }}
+            >
+              取消
+            </button>
+            {([
+              { key: 'q', label: '后 (Q)' },
+              { key: 'r', label: '车 (R)' },
+              { key: 'b', label: '象 (B)' },
+              { key: 'n', label: '马 (N)' },
+            ]).map((p) => (
+              <button
+                key={p.key}
+                className="btn btn--primary"
+                onClick={() => {
+                  const from = pendingPromotion.from;
+                  const to = pendingPromotion.to;
+                  setPendingPromotion(null);
+                  const res = attemptMove(from, to, p.key);
+                  if (!res.ok) {
+                    showToast("升变移动失败（可能不合法）", "warning", 2600);
+                    return;
+                  }
+
+                  setFen(gameRulesRef.current.getFen());
+                  setSelectedSquare(null);
+                  setValidMoves([]);
+                  playMoveSound();
+
+                  if (socket && isInGame) {
+                    socket.emit("make_move", {
+                      roomId,
+                      move: res.move,
+                      fen: gameRulesRef.current.getFen(),
+                      rulesetId: rulesetIdRef.current,
+                      rulesState: gameRulesRef.current.getRulesState ? gameRulesRef.current.getRulesState() : null,
+                    });
+                  }
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
         </div>
       )}
